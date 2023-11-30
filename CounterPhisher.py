@@ -6,63 +6,78 @@ import random
 import string
 import json
 import threading
-from requests.exceptions import SSLError
+import logging
+from requests.exceptions import SSLError, ConnectionError
 
 
-def generate_random_name():
+def load_json_file(file_path):
+    with open(file_path) as file:
+        return json.load(file)
+
+
+def generate_random_name(names):
     event = random.randint(0, 4)
     if event == 0:
-        return str(random.choice(names)).lower()
+        return random.choice(names).lower()
     elif event in [1, 2]:
         separator = ['-', '.', '_']
-        return str(random.choice(names)).lower() + separator[random.randint(0, len(separator) - 1)] + str(
-            random.choice(names)).lower()
+        return random.choice(names).lower() + random.choice(separator) + random.choice(names).lower()
     else:
-        return str(random.choice(names)).lower() + random.choice(string.digits) + random.choice(string.digits)
+        return random.choice(names).lower() + random.choice(string.digits) + random.choice(string.digits)
 
 
-def generate_random_password():
+def generate_random_password(chars, dictionary, names):
     event = random.randint(0, 6)
     if event == 0:
-        return ''.join(random.choice(chars) for i in range(random.randint(7, 15)))
+        return ''.join(random.choices(chars, k=random.randint(7, 15)))
     elif event in [1, 2]:
-        return random.choice(dictionary) + random.choice(dictionary) + random.choice(string.digits)
+        return ''.join(random.choices(dictionary, k=2)) + random.choice(string.digits)
     elif event in [3, 4]:
         return random.choice(dictionary) + random.choice(string.digits)
     else:
         return random.choice(string.digits) + random.choice(dictionary) + random.choice(names)
 
 
-def run():
+def run(url, formDataNameLogin, formDataNamePass, email_domains, chars, dictionary, names):
+    session = requests.Session()
     while True:
-        username = generate_random_name() + '@' + random.choice(emails) + '.' + random.choice(ext)
-        password = generate_random_password()
+        username = generate_random_name(
+            names) + '@' + random.choice(email_domains)
+        password = generate_random_password(chars, dictionary, names)
         try:
-            r = requests.post(url, allow_redirects=False, data={
-                str(formDataNameLogin): username,
-                str(formDataNamePass): password,
+            response = session.post(url, allow_redirects=False, data={
+                formDataNameLogin: username,
+                formDataNamePass: password,
             })
-            print('[Result: %s] -- [USERNAME: %s] -- [PASSWORD: %s]' % (r.status_code, username, password))
-        except SSLError as e:
-            print('Error: URL can no longer be reached..')
+            logging.info(
+                f'[Result: {response.status_code}] -- [USERNAME: {username}] -- [PASSWORD: {password}]')
+        except (SSLError, ConnectionError) as e:
+            logging.error(f'Connection error: {e}')
         except Exception as e:
-            print('Error: {0}'.format(e))
+            logging.error(f'Error: {e}')
 
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
+
     url = input('Form URL: ')
     formDataNameLogin = input('Form Data [Account/Email] Name: ')
     formDataNamePass = input('Form Data Password Name: ')
-    threads = int(input('Threads: '))
+    threads_count = int(input('Threads: '))
 
     chars = string.ascii_letters + string.digits
-    random.seed = (os.urandom(1024))
+    random.seed(os.urandom(1024))
 
-    names = json.loads(open('assets/names.json').read())
-    emails = json.loads(open('assets/emails.json').read())
-    ext = json.loads(open('assets/extensions.json').read())
-    dictionary = json.loads(open('assets/dictionary.json').read())
+    names = load_json_file('assets/names.json')
+    email_domains = load_json_file('assets/email_domains.json')
+    dictionary = load_json_file('assets/dictionary.json')
 
-    for i in range(threads):
-        t = threading.Thread(target=run)
+    threads = []
+    for i in range(threads_count):
+        t = threading.Thread(target=run, args=(
+            url, formDataNameLogin, formDataNamePass, email_domains, chars, dictionary, names))
         t.start()
+        threads.append(t)
+
+    for thread in threads:
+        thread.join()
